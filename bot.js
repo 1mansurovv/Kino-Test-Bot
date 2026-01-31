@@ -14,7 +14,7 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 
 // ====== MAJBURIY KANALLAR (3 TA) ======
-const REQUIRED_CHANNELS = ["newbot113", "teznew1"]; // 3 tasini shu yerga yozing
+const REQUIRED_CHANNELS = ["newbot113", "teznew1"]; 
 
 // ====== MOVIES.JSON ======
 const MOVIES_FILE = path.join(__dirname, "movies.json");
