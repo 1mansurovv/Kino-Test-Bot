@@ -13,8 +13,33 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 
-// ====== MAJBURIY KANALLAR (3 TA) ======
-const REQUIRED_CHANNELS = ["newbot113", "teznew1"]; 
+// ✅ Sizning bot username (caption uchun)
+const BOT_USERNAME = "kino_uz_24_bot"; // @ belgisisiz
+
+// ✅ PUBLIC yo‘q
+const PUBLIC_CHANNELS = []; // bo'sh (ishlatilmaydi)
+
+// 🔒 3 ta PRIVATE kanal (INVITE LINK + chat_id tekshiruv)
+const PRIVATE_CHANNELS = [
+  {
+    title: "VIP KINOLAR UZ",
+    url: "https://t.me/+s0bW32xOKo04MDVi",
+    chat_id: -1003723778329,
+    chat_is_channel: true,
+  },
+  {
+    title: "VIP KANAL 2",
+    url: "https://t.me/+VECkUA6aYDdmMWVi",
+    chat_id: -1003732022071,
+    chat_is_channel: true,
+  },
+  {
+    title: "VIP KANAL 3",
+    url: "https://t.me/+Aj-PAUWXNKM0NmQy",
+    chat_id: -1003580032469,
+     chat_is_channel: true,
+  },
+];
 
 // ====== MOVIES.JSON ======
 const MOVIES_FILE = path.join(__dirname, "movies.json");
@@ -28,36 +53,33 @@ function saveMovies(data) {
 }
 let MOVIES = loadMovies();
 
-// ====== OBUNA TEKSHIRUV (qaysi kanallarga obuna EMAS) ======
-async function getNotSubscribedChannels(userId) {
+// ====== PRIVATE OBUNA TEKSHIRUV ======
+async function getNotSubscribedPrivate(userId) {
   const notSub = [];
 
-  for (const ch of REQUIRED_CHANNELS) {
+  for (const ch of PRIVATE_CHANNELS) {
     try {
-      const m = await bot.getChatMember(`@${ch}`, userId);
+      const m = await bot.getChatMember(ch.chat_id, userId);
       const ok = ["creator", "administrator", "member"].includes(m.status);
       if (!ok) notSub.push(ch);
     } catch (err) {
-      console.log(
-        `getChatMember xato (@${ch}):`,
-        err?.response?.statusCode,
-        err?.response?.body || err.message
-      );
+      // bot admin bo'lmasa, chat_id xato bo'lsa, yoki user a'zo bo'lmasa shu yerga tushadi
       notSub.push(ch);
     }
   }
+
   return notSub;
 }
 
-// ====== SUBSCRIBE OYNASI (SIZ KO'RSATGAN KO'RINISH) ======
+// ====== SUBSCRIBE OYNASI ======
 async function sendOrUpdateSubscribeScreen({ chatId, userId, messageId }) {
-  const notSub = await getNotSubscribedChannels(userId);
+  const notSubPrivate = await getNotSubscribedPrivate(userId);
 
-  // Hammasiga obuna bo‘lsa
-  if (notSub.length === 0) {
+  // ✅ hammasiga a'zo bo'lsa
+  if (notSubPrivate.length === 0) {
     if (messageId) {
       await bot
-        .editMessageText("✅ Tasdiqlandi! Endi kino kodini yuboring.", {
+        .editMessageText("", {
           chat_id: chatId,
           message_id: messageId,
         })
@@ -67,22 +89,16 @@ async function sendOrUpdateSubscribeScreen({ chatId, userId, messageId }) {
   }
 
   const text =
-    "❌ Kechirasiz botimizdan foydalanishdan oldin ushbu kanallarga a'zo bo'lishingiz kerak.";
+    "❌ Botdan foydalanishdan oldin quyidagi kanallarga a'zo bo‘ling:";
 
-  // Faqat obuna bo‘lmagan kanallar tugmada qoladi (dinamik)
-  // Tugma yozuvi: 1 - kanal, 2 - kanal, 3 - kanal ...
-  const buttons = notSub.map((ch, idx) => [
-    { text: `${idx + 1} - kanal`, url: `https://t.me/${ch}` },
+  const buttons = notSubPrivate.map((ch, idx) => [
+    { text: `${idx + 1}. ${ch.title}`, url: ch.url },
   ]);
 
-  // Pastdagi tasdiqlash tugmasi
   buttons.push([{ text: "✅ Tasdiqlash", callback_data: "check_sub" }]);
 
-  const opts = {
-    reply_markup: { inline_keyboard: buttons },
-  };
+  const opts = { reply_markup: { inline_keyboard: buttons } };
 
-  // callbackdan kelsa — o‘sha xabarni edit qilamiz
   if (messageId) {
     return bot
       .editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts })
@@ -97,9 +113,9 @@ bot.onText(/\/myid/, (msg) => {
   bot.sendMessage(msg.chat.id, `Sizning ID: ${msg.from.id}`);
 });
 
-// /add 101
 const waitingVideoForCode = new Map();
 
+// /add 101
 bot.onText(/\/add\s+(\d+)/, (msg, match) => {
   if (msg.from.id !== ADMIN_ID) {
     return bot.sendMessage(msg.chat.id, "❌ Siz admin emassiz.");
@@ -107,7 +123,10 @@ bot.onText(/\/add\s+(\d+)/, (msg, match) => {
 
   const code = match[1];
   waitingVideoForCode.set(msg.chat.id, code);
-  bot.sendMessage(msg.chat.id, `✅ Kod qabul qilindi: ${code}\nEndi video yuboring`);
+  bot.sendMessage(
+    msg.chat.id,
+    `✅ Kod qabul qilindi: ${code}\nEndi video yoki fayl yuboring`
+  );
 });
 
 // /del 101
@@ -131,7 +150,10 @@ bot.onText(/\/list/, (msg) => {
   const keys = Object.keys(MOVIES);
   if (keys.length === 0) return bot.sendMessage(msg.chat.id, "Hozircha kino yo‘q.");
 
-  bot.sendMessage(msg.chat.id, "🎬 Kinolar:\n" + keys.map((k) => `• ${k}`).join("\n"));
+  bot.sendMessage(
+    msg.chat.id,
+    "🎬 Kinolar:\n" + keys.map((k) => `• ${k}`).join("\n")
+  );
 });
 
 // Admin video qabul
@@ -163,14 +185,11 @@ bot.on("document", (msg) => {
 
 // ====== CALLBACK (✅ Tasdiqlash) ======
 bot.on("callback_query", async (q) => {
-  const chatId = q.message.chat.id;
-  const userId = q.from.id;
-
   if (q.data === "check_sub") {
     await bot.answerCallbackQuery(q.id, { text: "Tekshiryapman..." });
     return sendOrUpdateSubscribeScreen({
-      chatId,
-      userId,
+      chatId: q.message.chat.id,
+      userId: q.from.id,
       messageId: q.message.message_id,
     });
   }
@@ -181,10 +200,8 @@ bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  const notSub = await getNotSubscribedChannels(userId);
-  if (notSub.length > 0) {
-    return sendOrUpdateSubscribeScreen({ chatId, userId });
-  }
+  const notSubPrivate = await getNotSubscribedPrivate(userId);
+  if (notSubPrivate.length > 0) return sendOrUpdateSubscribeScreen({ chatId, userId });
 
   bot.sendMessage(chatId, "🎬 Kino kodini yuboring");
 });
@@ -195,17 +212,21 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  const notSub = await getNotSubscribedChannels(userId);
-  if (notSub.length > 0) {
-    return sendOrUpdateSubscribeScreen({ chatId, userId });
-  }
+  const notSubPrivate = await getNotSubscribedPrivate(userId);
+  if (notSubPrivate.length > 0) return sendOrUpdateSubscribeScreen({ chatId, userId });
 
   const code = msg.text.trim();
   const fileId = MOVIES[code];
 
   if (!fileId) return bot.sendMessage(chatId, "❌ Bunday kod topilmadi.");
 
-  bot.sendVideo(chatId, fileId).catch(() => bot.sendDocument(chatId, fileId));
+  const caption =
+    `🎬 Kino kodi: ${code}\n` +
+    `🤖 Bizning bot: @${BOT_USERNAME}\n`;
+
+  return bot
+    .sendVideo(chatId, fileId, { caption })
+    .catch(() => bot.sendDocument(chatId, fileId, { caption }));
 });
 
-console.log("✅ Bot ishlayapti (subscribe UI siz xohlagandek)...");
+console.log("✅ Bot ishlayapti (3 ta PRIVATE tekshiruv + join request)...");
