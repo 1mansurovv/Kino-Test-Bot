@@ -11,7 +11,15 @@ if (!token) {
   process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
+// ✅ chat_join_request kelishi uchun allowed_updates qo'yamiz
+const bot = new TelegramBot(token, {
+  polling: {
+    interval: 300,
+    params: {
+      allowed_updates: ["message", "callback_query", "chat_join_request"],
+    },
+  },
+});
 
 // 409 Conflict bo'lsa - 2 ta instance ishlayapti degani
 bot.on("polling_error", (err) => console.log("polling_error:", err.message));
@@ -19,8 +27,7 @@ bot.on("polling_error", (err) => console.log("polling_error:", err.message));
 // ✅ Bot username (caption uchun)
 const BOT_USERNAME = "kino_uz_24_bot"; // @ belgisisiz
 
-// ✅ 3 ta PRIVATE kanal: title + url + chat_id
-// Siz bergan yangi ssilkalar bilan:
+// ✅ 3 ta PRIVATE kanal
 const PRIVATE_CHANNELS = [
   {
     title: "VIP KANAL 1",
@@ -55,16 +62,19 @@ function saveMovies(data) {
 let MOVIES = loadMovies();
 
 // ====== ACCESS.JSON ======
-// access.json structure:
-// {
-//   "userId": {
-//     "ok": true/false,
-//     "at": 0,
-//     "channels": {
-//       "-100xxxx": { "requested": true, "at": 123456789 }
-//     }
-//   }
-// }
+/**
+ * access.json structure:
+ * {
+ *   "userId": {
+ *     "ok": true/false,
+ *     "at": 0,
+ *     "channels": {
+ *       "-100xxxx": { "requested": true, "at": 123456789 }
+ *     },
+ *     "last_subscribe": { "chatId": 123, "messageId": 45, "at": 123456789 }
+ *   }
+ * }
+ */
 const ACCESS_FILE = path.join(__dirname, "access.json");
 
 function loadAccess() {
@@ -110,16 +120,32 @@ function hasAccess(userId) {
   return Boolean(access[String(userId)]?.ok);
 }
 
+// ✅ subscribe oynasining message_id sini saqlash
+function setLastSubscribeMessage(userId, chatId, messageId) {
+  const access = loadAccess();
+  const u = ensureUser(access, userId);
+  u.last_subscribe = { chatId, messageId, at: Date.now() };
+  saveAccess(access);
+}
+function getLastSubscribeMessage(userId) {
+  const access = loadAccess();
+  const u = access[String(userId)];
+  return u?.last_subscribe || null;
+}
+
 // ====== UI (status ro'yxat) ======
 function buildPlainStatusText(userId) {
   const access = loadAccess();
   const u = access[String(userId)] || {};
   const channels = u.channels || {};
 
+  const CHECK = "\u2705"; // ✅
+  const CROSS = "\u274C"; // ❌
+
   return PRIVATE_CHANNELS
     .map((ch) => {
       const ok = Boolean(channels[String(ch.chat_id)]?.requested);
-      return `${ok ? "✅" : "❌"} ${ch.title}`;
+      return `${ok ? CHECK : CROSS} ${ch.title}`;
     })
     .join("\n");
 }
@@ -133,7 +159,7 @@ function buildSubscribeKeyboard() {
   ];
 }
 
-// ====== SUBSCRIBE SCREEN (siz xohlagan matn + status) ======
+// ====== SUBSCRIBE SCREEN ======
 async function sendSubscribeScreen(chatId, userId, messageId) {
   const statusText = buildPlainStatusText(userId);
 
@@ -144,15 +170,25 @@ async function sendSubscribeScreen(chatId, userId, messageId) {
 
   const opts = {
     reply_markup: { inline_keyboard: buildSubscribeKeyboard() },
+    disable_web_page_preview: true,
   };
 
+  // Edit bo'lsa — edit qilamiz, bo'lmasa yangi yuboramiz
   if (messageId) {
     return bot
       .editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts })
-      .catch(() => bot.sendMessage(chatId, text, opts));
+      .catch(() =>
+        bot.sendMessage(chatId, text, opts).then((m) => {
+          setLastSubscribeMessage(userId, chatId, m.message_id);
+          return m;
+        })
+      );
   }
 
-  return bot.sendMessage(chatId, text, opts);
+  return bot.sendMessage(chatId, text, opts).then((m) => {
+    setLastSubscribeMessage(userId, chatId, m.message_id);
+    return m;
+  });
 }
 
 // ====== ADMIN BUYRUQLAR ======
@@ -221,20 +257,23 @@ bot.on("document", (msg) => {
 });
 
 // ====== ENG MUHIM: JOIN REQUEST EVENT ======
-// Bot kanallarda ADMIN bo'lsa, user join request yuborganda shu event keladi.
+// ✅ DM yo‘q, lekin status oynasi avtomatik yangilanadi
 bot.on("chat_join_request", async (req) => {
   try {
     const userId = req.from.id;
     const channelId = req.chat.id;
 
-    // faqat bizning kanallar bo'lsa yozamiz
     const isOurChannel = PRIVATE_CHANNELS.some((ch) => ch.chat_id === channelId);
     if (!isOurChannel) return;
 
+    // 1) requested belgilaymiz
     markRequested(userId, channelId);
 
-    // (ixtiyoriy) userga DM jo'natib ko'ramiz
-    await bot.sendMessage(userId, "✅ Zayavka qabul qilindi. Botga qaytib ✅ Tasdiqlash bosing.").catch(() => {});
+    // 2) userning oxirgi subscribe oynasini topib, edit qilamiz
+    const last = getLastSubscribeMessage(userId);
+    if (last?.chatId && last?.messageId) {
+      await sendSubscribeScreen(last.chatId, userId, last.messageId).catch(() => {});
+    }
   } catch (e) {
     console.log("chat_join_request error:", e);
   }
@@ -260,7 +299,6 @@ bot.on("callback_query", async (q) => {
         .catch(() => bot.sendMessage(chatId, okText));
     }
 
-    // Hali 3/3 bo'lmasa: status ekranni yangilab qaytaramiz
     await bot.answerCallbackQuery(q.id, { text: "❌ Hali hammasi emas!", show_alert: true });
     return sendSubscribeScreen(chatId, userId, q.message.message_id);
   }
