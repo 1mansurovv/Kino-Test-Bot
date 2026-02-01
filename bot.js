@@ -16,21 +16,24 @@ const bot = new TelegramBot(token, { polling: true });
 // ✅ Sizning bot username (caption uchun)
 const BOT_USERNAME = "kino_uz_24_bot"; // @ belgisisiz
 
-// 🔒 3 ta PRIVATE kanal (faqat tugma/link ko'rsatish uchun)
+// ✅ PUBLIC yo‘q
+const PUBLIC_CHANNELS = []; // ishlatilmaydi
+
+// 🔒 3 ta PRIVATE kanal (INVITE LINK + chat_id tekshiruv)
 const PRIVATE_CHANNELS = [
   {
     title: "VIP KINOLAR UZ",
-    url: "https://t.me/+Lepigm4SE8RjNWQy",
+    url: "https://t.me/+opgAZuY-4343OTRi",
     chat_id: -1003723778329,
   },
   {
     title: "VIP KANAL 2",
-    url: "https://t.me/+oCQf5S0d12c1ODMy",
+    url: "https://t.me/+cbWQd3Se8LA3YTZi",
     chat_id: -1003732022071,
   },
   {
     title: "VIP KANAL 3",
-    url: "https://t.me/+Q7cmDW5Dbvs1MjY6",
+    url: "https://t.me/+m1trJ3DWNzQ3NmMy",
     chat_id: -1003580032469,
   },
 ];
@@ -47,29 +50,28 @@ function saveMovies(data) {
 }
 let MOVIES = loadMovies();
 
-// ====== ACCESS.JSON (kim "obuna bo'ldim" bosganini saqlaydi) ======
-const ACCESS_FILE = path.join(__dirname, "access.json");
+// ====== PRIVATE OBUNA TEKSHIRUV ======
+async function getNotSubscribedPrivate(userId) {
+  const notSub = [];
 
-function loadAccess() {
-  if (!fs.existsSync(ACCESS_FILE)) fs.writeFileSync(ACCESS_FILE, "{}");
-  return JSON.parse(fs.readFileSync(ACCESS_FILE, "utf8"));
-}
-function saveAccess(data) {
-  fs.writeFileSync(ACCESS_FILE, JSON.stringify(data, null, 2));
-}
-let ACCESS = loadAccess();
+  for (const ch of PRIVATE_CHANNELS) {
+    try {
+      const m = await bot.getChatMember(ch.chat_id, userId);
+      const ok = ["creator", "administrator", "member"].includes(m.status);
+      if (!ok) notSub.push(ch);
+    } catch (err) {
+      // bot admin bo'lmasa, chat_id xato bo'lsa, yoki user a'zo bo'lmasa shu yerga tushadi
+      notSub.push(ch);
+    }
+  }
 
-function grantAccess(userId) {
-  ACCESS[String(userId)] = { ok: true, at: Date.now() };
-  saveAccess(ACCESS);
-}
-function hasAccess(userId) {
-  return Boolean(ACCESS[String(userId)]?.ok);
+  return notSub;
 }
 
-// ====== KEYBOARD (request_chat bo'lsa ishlatadi, bo'lmasa url) ======
-function buildRequestChatKeyboard() {
-  const rows = PRIVATE_CHANNELS.map((ch, idx) => [
+// ====== (YANGI) KEYBOARD BUILDER ======
+function buildRequestChatKeyboard(notSubPrivate) {
+  // request_id unikal bo‘lishi kerak (0..2^31-1)
+  return notSubPrivate.map((ch, idx) => [
     {
       text: `${idx + 1}. ${ch.title}`,
       request_chat: {
@@ -78,50 +80,61 @@ function buildRequestChatKeyboard() {
       },
     },
   ]);
-
-  // ✅ Asosiy tugma
-  rows.push([{ text: "✅ Men obuna bo‘ldim", callback_data: "i_subscribed" }]);
-  return rows;
 }
 
-function buildUrlKeyboard() {
-  const rows = PRIVATE_CHANNELS.map((ch, idx) => [
+function buildUrlKeyboard(notSubPrivate) {
+  return notSubPrivate.map((ch, idx) => [
     { text: `${idx + 1}. ${ch.title}`, url: ch.url },
   ]);
-
-  // ✅ Asosiy tugma
-  rows.push([{ text: "✅ Men obuna bo‘ldim", callback_data: "i_subscribed" }]);
-  return rows;
 }
 
-// ====== SUBSCRIBE OYNASI (TEKSHIRUV YO'Q) ======
-async function sendSubscribeScreen(chatId, messageId) {
-  const text =
-    "📩 VIP kanallarga zayavka yuboring.\n" +
-    "So‘ng botga qaytib ✅ *Men obuna bo‘ldim* tugmasini bosing.";
+// ====== SUBSCRIBE OYNASI ======
+async function sendOrUpdateSubscribeScreen({ chatId, userId, messageId }) {
+  const notSubPrivate = await getNotSubscribedPrivate(userId);
 
-  const reqOpts = {
-    parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: buildRequestChatKeyboard() },
-  };
-
-  const urlOpts = {
-    parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: buildUrlKeyboard() },
-  };
-
-  // request_chat bilan urinib ko‘ramiz, bo‘lmasa url fallback
-  if (messageId) {
-    return bot
-      .editMessageText(text, { chat_id: chatId, message_id: messageId, ...reqOpts })
-      .catch(() =>
-        bot
-          .editMessageText(text, { chat_id: chatId, message_id: messageId, ...urlOpts })
-          .catch(() => bot.sendMessage(chatId, text, urlOpts))
-      );
+  // ✅ hammasiga a'zo bo'lsa
+  if (notSubPrivate.length === 0) {
+    if (messageId) {
+      await bot
+        .editMessageText("✅ Tasdiqlandi! Endi kino kodini yuboring.", {
+          chat_id: chatId,
+          message_id: messageId,
+        })
+        .catch(() => {});
+    }
+    return bot.sendMessage(chatId, "🎬 Kino kodini yuboring");
   }
 
-  return bot.sendMessage(chatId, text, reqOpts).catch(() => bot.sendMessage(chatId, text, urlOpts));
+  const text =
+    "❌ Botdan foydalanishdan oldin quyidagi kanallarga a'zo bo‘ling (zayavka yuboring), so‘ng ✅ Tasdiqlash ni bosing:";
+
+  // 1) Avval request_chat (kanal ichiga kirmaydi)
+  const buttonsRequest = buildRequestChatKeyboard(notSubPrivate);
+  buttonsRequest.push([{ text: "✅ Tasdiqlash", callback_data: "check_sub" }]);
+  const optsRequest = { reply_markup: { inline_keyboard: buttonsRequest } };
+
+  // 2) Fallback: url (agar request_chat ishlamasa)
+  const buttonsUrl = buildUrlKeyboard(notSubPrivate);
+  buttonsUrl.push([{ text: "✅ Tasdiqlash", callback_data: "check_sub" }]);
+  const optsUrl = { reply_markup: { inline_keyboard: buttonsUrl } };
+
+  // helper: xabar yuborish / edit qilishni request_chat bilan urinib ko‘ramiz,
+  // xato bo‘lsa url variantga o‘tamiz
+  const sendOrEdit = async (optsA, optsB) => {
+    if (messageId) {
+      return bot
+        .editMessageText(text, { chat_id: chatId, message_id: messageId, ...optsA })
+        .catch(() =>
+          bot
+            .editMessageText(text, { chat_id: chatId, message_id: messageId, ...optsB })
+            .catch(() => bot.sendMessage(chatId, text, optsB))
+        );
+    }
+
+    return bot.sendMessage(chatId, text, optsA).catch(() => bot.sendMessage(chatId, text, optsB));
+  };
+
+  return sendOrEdit(optsRequest, optsUrl);
 }
 
 // ====== ADMIN BUYRUQLAR ======
@@ -133,16 +146,23 @@ const waitingVideoForCode = new Map();
 
 // /add 101
 bot.onText(/\/add\s+(\d+)/, (msg, match) => {
-  if (msg.from.id !== ADMIN_ID) return bot.sendMessage(msg.chat.id, "❌ Siz admin emassiz.");
+  if (msg.from.id !== ADMIN_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ Siz admin emassiz.");
+  }
 
   const code = match[1];
   waitingVideoForCode.set(msg.chat.id, code);
-  bot.sendMessage(msg.chat.id, `✅ Kod qabul qilindi: ${code}\nEndi video yoki fayl yuboring`);
+  bot.sendMessage(
+    msg.chat.id,
+    `✅ Kod qabul qilindi: ${code}\nEndi video yoki fayl yuboring`
+  );
 });
 
 // /del 101
 bot.onText(/\/del\s+(\d+)/, (msg, match) => {
-  if (msg.from.id !== ADMIN_ID) return bot.sendMessage(msg.chat.id, "❌ Siz admin emassiz.");
+  if (msg.from.id !== ADMIN_ID) {
+    return bot.sendMessage(msg.chat.id, "❌ Siz admin emassiz.");
+  }
 
   const code = match[1];
   if (!MOVIES[code]) return bot.sendMessage(msg.chat.id, "❌ Bunday kod yo‘q.");
@@ -159,7 +179,10 @@ bot.onText(/\/list/, (msg) => {
   const keys = Object.keys(MOVIES);
   if (keys.length === 0) return bot.sendMessage(msg.chat.id, "Hozircha kino yo‘q.");
 
-  bot.sendMessage(msg.chat.id, "🎬 Kinolar:\n" + keys.map((k) => `• ${k}`).join("\n"));
+  bot.sendMessage(
+    msg.chat.id,
+    "🎬 Kinolar:\n" + keys.map((k) => `• ${k}`).join("\n")
+  );
 });
 
 // Admin video qabul
@@ -189,21 +212,15 @@ bot.on("document", (msg) => {
   bot.sendMessage(msg.chat.id, `✅ Saqlandi!\nKod: ${code}`);
 });
 
-// ====== CALLBACK (✅ Men obuna bo‘ldim) ======
+// ====== CALLBACK (✅ Tasdiqlash) ======
 bot.on("callback_query", async (q) => {
-  const chatId = q.message.chat.id;
-  const userId = q.from.id;
-
-  if (q.data === "i_subscribed") {
-    grantAccess(userId); // ✅ tugma bosildi, saqlandi
-    await bot.answerCallbackQuery(q.id, { text: "✅ Qabul qilindi!" });
-
-    return bot
-      .editMessageText("✅ Obuna bo‘ldingiz!\n🎬 Endi kino kodini yuboring.", {
-        chat_id: chatId,
-        message_id: q.message.message_id,
-      })
-      .catch(() => bot.sendMessage(chatId, "✅ Obuna bo‘ldingiz!\n🎬 Endi kino kodini yuboring."));
+  if (q.data === "check_sub") {
+    await bot.answerCallbackQuery(q.id, { text: "Tekshiryapman..." });
+    return sendOrUpdateSubscribeScreen({
+      chatId: q.message.chat.id,
+      userId: q.from.id,
+      messageId: q.message.message_id,
+    });
   }
 });
 
@@ -212,7 +229,8 @@ bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  if (!hasAccess(userId)) return sendSubscribeScreen(chatId);
+  const notSubPrivate = await getNotSubscribedPrivate(userId);
+  if (notSubPrivate.length > 0) return sendOrUpdateSubscribeScreen({ chatId, userId });
 
   bot.sendMessage(chatId, "🎬 Kino kodini yuboring");
 });
@@ -223,19 +241,21 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  // ✅ Tekshiruv yo'q: faqat tugma bosgan bo'lsa kiradi
-  if (!hasAccess(userId)) return sendSubscribeScreen(chatId);
+  const notSubPrivate = await getNotSubscribedPrivate(userId);
+  if (notSubPrivate.length > 0) return sendOrUpdateSubscribeScreen({ chatId, userId });
 
   const code = msg.text.trim();
   const fileId = MOVIES[code];
 
   if (!fileId) return bot.sendMessage(chatId, "❌ Bunday kod topilmadi.");
 
-  const caption = `🎬 Kino kodi: ${code}\n🤖 Bizning bot: @${BOT_USERNAME}\n`;
+  const caption =
+    `🎬 Kino kodi: ${code}\n` +
+    `🤖 Bizning bot: @${BOT_USERNAME}\n`;
 
   return bot
     .sendVideo(chatId, fileId, { caption })
     .catch(() => bot.sendDocument(chatId, fileId, { caption }));
 });
 
-console.log("✅ Bot ishlayapti (tugma bosildi => ruxsat, tekshiruv yo‘q)...");
+console.log("✅ Bot ishlayapti (3 ta PRIVATE tekshiruv + join request + request_chat)...");
