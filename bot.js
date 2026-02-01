@@ -133,47 +133,38 @@ function getLastSubscribeMessage(userId) {
   return u?.last_subscribe || null;
 }
 
-// ====== UI (status ro'yxat) ======
-function buildPlainStatusText(userId) {
+// ====== ✅ STATUS TUGMALARDA (rasmdagidek) ======
+function buildSubscribeKeyboard(userId) {
   const access = loadAccess();
   const u = access[String(userId)] || {};
   const channels = u.channels || {};
 
-  const CHECK = "\u2705"; // ✅
-  const CROSS = "\u274C"; // ❌
+  const CHECK = "✅";
+  const CROSS = "❌";
 
-  return PRIVATE_CHANNELS
-    .map((ch) => {
-      const ok = Boolean(channels[String(ch.chat_id)]?.requested);
-      return `${ok ? CHECK : CROSS} ${ch.title}`;
-    })
-    .join("\n");
+  const rows = PRIVATE_CHANNELS.map((ch) => {
+    const ok = Boolean(channels[String(ch.chat_id)]?.requested);
+    return [
+      {
+        text: `${ok ? CHECK : CROSS} ${ch.title}`,
+        url: ch.url,
+      },
+    ];
+  });
+
+  rows.push([{ text: "✅ Tasdiqlash", callback_data: "check_sub" }]);
+  return rows;
 }
 
-function buildSubscribeKeyboard() {
-  return [
-    [{ text: "VIP KANAL 1", url: PRIVATE_CHANNELS[0].url }],
-    [{ text: "VIP KANAL 2", url: PRIVATE_CHANNELS[1].url }],
-    [{ text: "VIP KANAL 3", url: PRIVATE_CHANNELS[2].url }],
-    [{ text: "✅ Tasdiqlash", callback_data: "check_sub" }],
-  ];
-}
-
-// ====== SUBSCRIBE SCREEN ======
+// ====== SUBSCRIBE SCREEN (yuqorida ro'yxat YO'Q) ======
 async function sendSubscribeScreen(chatId, userId, messageId) {
-  const statusText = buildPlainStatusText(userId);
-
-  const text =
-    "❌ Botdan foydalanishdan oldin quyidagi kanallarga a'zo bo‘ling\n" +
-    "(zayavka yuboring), so‘ng ✅ Tasdiqlash ni bosing:\n\n" +
-    statusText;
+  const text = "❌ Botdan foydalanishdan oldin quyidagi kanallarga a'zo bo‘ling";
 
   const opts = {
-    reply_markup: { inline_keyboard: buildSubscribeKeyboard() },
+    reply_markup: { inline_keyboard: buildSubscribeKeyboard(userId) },
     disable_web_page_preview: true,
   };
 
-  // Edit bo'lsa — edit qilamiz, bo'lmasa yangi yuboramiz
   if (messageId) {
     return bot
       .editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts })
@@ -190,6 +181,7 @@ async function sendSubscribeScreen(chatId, userId, messageId) {
     return m;
   });
 }
+
 
 // ====== ADMIN BUYRUQLAR ======
 bot.onText(/\/myid/, (msg) => {
@@ -256,8 +248,8 @@ bot.on("document", (msg) => {
   bot.sendMessage(msg.chat.id, `✅ Saqlandi!\nKod: ${code}`);
 });
 
-// ====== ENG MUHIM: JOIN REQUEST EVENT ======
-// ✅ DM yo‘q, lekin status oynasi avtomatik yangilanadi
+// ====== JOIN REQUEST EVENT ======
+// ✅ DM yo‘q, lekin tugmalar avtomatik ✅/❌ bo'lib yangilanadi
 bot.on("chat_join_request", async (req) => {
   try {
     const userId = req.from.id;
@@ -266,10 +258,8 @@ bot.on("chat_join_request", async (req) => {
     const isOurChannel = PRIVATE_CHANNELS.some((ch) => ch.chat_id === channelId);
     if (!isOurChannel) return;
 
-    // 1) requested belgilaymiz
     markRequested(userId, channelId);
 
-    // 2) userning oxirgi subscribe oynasini topib, edit qilamiz
     const last = getLastSubscribeMessage(userId);
     if (last?.chatId && last?.messageId) {
       await sendSubscribeScreen(last.chatId, userId, last.messageId).catch(() => {});
@@ -289,15 +279,17 @@ bot.on("callback_query", async (q) => {
   if (q.data === "check_sub") {
     const complete = hasRequestedAll(userId);
 
-    if (complete) {
-      grantAccess(userId);
-      await bot.answerCallbackQuery(q.id, { text: "✅ Qabul qilindi!" });
+if (complete) {
+  grantAccess(userId);
 
-      const okText = "✅ Obuna bo‘ldingiz!\n🎬 Endi kino kodini yuboring.";
-      return bot
-        .editMessageText(okText, { chat_id: chatId, message_id: q.message.message_id })
-        .catch(() => bot.sendMessage(chatId, okText));
-    }
+  await bot.answerCallbackQuery(q.id); // ❌ hech qanday yozuv chiqmaydi
+
+  const okText = "🎬 Endi kino kodini yuboring";
+  return bot
+    .editMessageText(okText, { chat_id: chatId, message_id: q.message.message_id })
+    .catch(() => bot.sendMessage(chatId, okText));
+}
+
 
     await bot.answerCallbackQuery(q.id, { text: "❌ Hali hammasi emas!", show_alert: true });
     return sendSubscribeScreen(chatId, userId, q.message.message_id);
