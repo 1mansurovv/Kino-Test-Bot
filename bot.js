@@ -30,18 +30,18 @@ const BOT_USERNAME = "kino_uz_24_bot"; // @ belgisisiz
 // ✅ 3 ta PRIVATE kanal
 const PRIVATE_CHANNELS = [
   {
-    title: "VIP KANAL 1",
-    url: "https://t.me/+syYmVLhMD2w4ZTky",
+    title: "ELITE KANAL",
+    url: "https://t.me/+5BcMUmsa4x02NGMy",
     chat_id: -1003723778329,
   },
   {
-    title: "VIP KANAL 2",
-    url: "https://t.me/+Y0tZ14SODvs2MWQy",
+    title: "VIP KANAL",
+    url: "https://t.me/+AYCB6vLsQ_1iNzli",
     chat_id: -1003732022071,
   },
   {
-    title: "VIP KANAL 3",
-    url: "https://t.me/+3aHjwQlSreRkMGYy",
+    title: "elite filmms",
+    url: "https://t.me/+1lcH7jJ7SNoyM2Fi",
     chat_id: -1003580032469,
   },
 ];
