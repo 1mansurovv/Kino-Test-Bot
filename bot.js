@@ -11,6 +11,18 @@ if (!token) {
   process.exit(1);
 }
 
+// =====================
+// ✅ Railway Volume DATA DIR
+// Railway'da Volume mount path: /data
+// (istasa env bilan ham boshqarasiz: DATA_DIR=/data)
+// =====================
+const DATA_DIR = process.env.DATA_DIR || "/data";
+try {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (e) {
+  console.log("⚠️ DATA_DIR yaratib bo'lmadi:", DATA_DIR, e.message);
+}
+
 // ✅ chat_join_request kelishi uchun allowed_updates qo'yamiz
 const bot = new TelegramBot(token, {
   polling: {
@@ -47,17 +59,27 @@ const PRIVATE_CHANNELS = [
 ];
 
 console.log("CHANNEL LINKS:", PRIVATE_CHANNELS.map((c) => c.url));
+console.log("DATA_DIR:", DATA_DIR);
 console.log("✅ Bot ishga tushdi.");
 
 // ====== MOVIES.JSON ======
-const MOVIES_FILE = path.join(__dirname, "movies.json");
+const MOVIES_FILE = path.join(DATA_DIR, "movies.json");
 
 function loadMovies() {
-  if (!fs.existsSync(MOVIES_FILE)) fs.writeFileSync(MOVIES_FILE, "{}");
-  return JSON.parse(fs.readFileSync(MOVIES_FILE, "utf8"));
+  try {
+    if (!fs.existsSync(MOVIES_FILE)) fs.writeFileSync(MOVIES_FILE, "{}", "utf8");
+    return JSON.parse(fs.readFileSync(MOVIES_FILE, "utf8"));
+  } catch (e) {
+    console.log("❌ loadMovies xato:", e.message);
+    return {};
+  }
 }
 function saveMovies(data) {
-  fs.writeFileSync(MOVIES_FILE, JSON.stringify(data, null, 2), "utf8");
+  try {
+    fs.writeFileSync(MOVIES_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (e) {
+    console.log("❌ saveMovies xato:", e.message);
+  }
 }
 let MOVIES = loadMovies();
 
@@ -75,14 +97,23 @@ let MOVIES = loadMovies();
  *   }
  * }
  */
-const ACCESS_FILE = path.join(__dirname, "access.json");
+const ACCESS_FILE = path.join(DATA_DIR, "access.json");
 
 function loadAccess() {
-  if (!fs.existsSync(ACCESS_FILE)) fs.writeFileSync(ACCESS_FILE, "{}");
-  return JSON.parse(fs.readFileSync(ACCESS_FILE, "utf8"));
+  try {
+    if (!fs.existsSync(ACCESS_FILE)) fs.writeFileSync(ACCESS_FILE, "{}", "utf8");
+    return JSON.parse(fs.readFileSync(ACCESS_FILE, "utf8"));
+  } catch (e) {
+    console.log("❌ loadAccess xato:", e.message);
+    return {};
+  }
 }
 function saveAccess(data) {
-  fs.writeFileSync(ACCESS_FILE, JSON.stringify(data, null, 2), "utf8");
+  try {
+    fs.writeFileSync(ACCESS_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (e) {
+    console.log("❌ saveAccess xato:", e.message);
+  }
 }
 
 function ensureUser(access, userId) {
@@ -133,7 +164,7 @@ function getLastSubscribeMessage(userId) {
   return u?.last_subscribe || null;
 }
 
-// ====== ✅ STATUS TUGMALARDA (rasmdagidek) ======
+// ====== ✅ STATUS TUGMALARDA ======
 function buildSubscribeKeyboard(userId) {
   const access = loadAccess();
   const u = access[String(userId)] || {};
@@ -156,7 +187,7 @@ function buildSubscribeKeyboard(userId) {
   return rows;
 }
 
-// ====== SUBSCRIBE SCREEN (yuqorida ro'yxat YO'Q) ======
+// ====== SUBSCRIBE SCREEN ======
 async function sendSubscribeScreen(chatId, userId, messageId) {
   const text = "❌ Botdan foydalanishdan oldin quyidagi kanallarga a'zo bo‘ling";
 
@@ -181,7 +212,6 @@ async function sendSubscribeScreen(chatId, userId, messageId) {
     return m;
   });
 }
-
 
 // ====== ADMIN BUYRUQLAR ======
 bot.onText(/\/myid/, (msg) => {
@@ -249,7 +279,6 @@ bot.on("document", (msg) => {
 });
 
 // ====== JOIN REQUEST EVENT ======
-// ✅ DM yo‘q, lekin tugmalar avtomatik ✅/❌ bo'lib yangilanadi
 bot.on("chat_join_request", async (req) => {
   try {
     const userId = req.from.id;
@@ -279,17 +308,16 @@ bot.on("callback_query", async (q) => {
   if (q.data === "check_sub") {
     const complete = hasRequestedAll(userId);
 
-if (complete) {
-  grantAccess(userId);
+    if (complete) {
+      grantAccess(userId);
 
-  await bot.answerCallbackQuery(q.id); // ❌ hech qanday yozuv chiqmaydi
+      await bot.answerCallbackQuery(q.id);
 
-  const okText = "🎬 Endi kino kodini yuboring";
-  return bot
-    .editMessageText(okText, { chat_id: chatId, message_id: q.message.message_id })
-    .catch(() => bot.sendMessage(chatId, okText));
-}
-
+      const okText = "🎬 Endi kino kodini yuboring";
+      return bot
+        .editMessageText(okText, { chat_id: chatId, message_id: q.message.message_id })
+        .catch(() => bot.sendMessage(chatId, okText));
+    }
 
     await bot.answerCallbackQuery(q.id, { text: "❌ Hali hammasi emas!", show_alert: true });
     return sendSubscribeScreen(chatId, userId, q.message.message_id);
