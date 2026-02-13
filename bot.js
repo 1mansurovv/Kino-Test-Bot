@@ -12,11 +12,24 @@ if (!token) {
 }
 
 // =====================
-// ✅ Railway Volume DATA DIR
-// Railway'da Volume mount path: /data
-// (istasa env bilan ham boshqarasiz: DATA_DIR=/data)
+// ✅ DATA DIR (Railway Volume mos)
+// 1) Agar DATA_DIR env bo'lsa -> o'sha
+// 2) Agar /data mavjud bo'lsa -> /data (Railway volume mount qilgan bo'lsangiz)
+// 3) Aks holda -> __dirname (local/dev uchun)
 // =====================
-const DATA_DIR = process.env.DATA_DIR || "/data";
+function resolveDataDir() {
+  const envDir = process.env.DATA_DIR && process.env.DATA_DIR.trim();
+  if (envDir) return envDir;
+
+  try {
+    if (fs.existsSync("/data")) return "/data";
+  } catch (_) {}
+
+  return __dirname;
+}
+
+const DATA_DIR = resolveDataDir();
+
 try {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (e) {
